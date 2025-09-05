@@ -103,7 +103,7 @@ To run this example, save it as a Python file (e.g., `counter_example.py`) and e
 python counter_example.py
 ```
 
-Here's another example demonstrating how to use the typed GenServer `genserver` to create a counter server:
+Alternatively, you can use the TypedGenServer API to create a counter server that responds to structured messages:
 
 ```python
 import time
@@ -116,22 +116,22 @@ logging.basicConfig(level=logging.INFO)
 class Increment:
     pass
 
-
 class Decrement:
     pass
-
 
 class GetCount:
     pass
 
-
 class IncrementAndGet:
     pass
 
-
 class CounterServer(
-    TypedGenServer[Increment | Decrement, GetCount | IncrementAndGet, int]
-):  # Example with state as int
+    TypedGenServer[
+        Increment | Decrement,      # Cast messages are Increment or Decrement
+        GetCount | IncrementAndGet, # Call messages are GetCount or IncrementAndGet
+        int                         # State is an int
+    ]
+):  
     def init(self) -> int:
         return 0  # Initial state is 0
 
@@ -139,9 +139,12 @@ class CounterServer(
         match message:
             case Increment():
                 return state + 1
+            
             case Decrement():
                 return state -1
+
             case _:
+                # Default unhandled cast
                 return super().handle_cast(message, state)
 
     def handle_call(self, message, state: int) -> tuple[int, int]:
@@ -152,7 +155,7 @@ class CounterServer(
             case IncrementAndGet():
                 new_state = state + 1
                 return new_state, new_state
-
+            
             case _:
                 raise NotImplementedError("Call message %s not implemented.", message)
 
