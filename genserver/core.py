@@ -51,6 +51,12 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
     """
     Typed Generic Server (GenServer) base class for Python.
 
+    Has three generic parameters:
+    
+    1. `CastMsg`: The type of cast messages that it accepts.
+    2. `CallMsg`: The type of call messages that it accepts.
+    3. `StateType`: The type of its internal state.
+
     Implements the core GenServer behavior inspired by Erlang/OTP.
     Subclass this to create your own GenServers.
 
@@ -443,9 +449,14 @@ class GenServer(
     Implements the core GenServer behavior inspired by Erlang/OTP.
     Subclass this to create your own GenServers.
 
+    Specialises TypedGenServer to expect dictionaries for call and cast messages.
+    
+    Has one generic parameter:
+    
+    1. `StateType`: The type of its internal state.
+
     Handles message queuing, state management, and basic lifecycle.
 
-    Expects dictionaries for call and cast messages.
     """
 
     pass
