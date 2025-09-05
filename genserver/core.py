@@ -27,6 +27,7 @@ logger.addHandler(
 
 # ___________________ GenServer Messages ___________________
 
+
 class Terminate:
     """
     A sentinel message used to signal that a TypedGenServer should stop running.
@@ -77,7 +78,9 @@ class Cast(Generic[CastMsg]):
     def __init__(self, message: CastMsg):
         self.message = message
 
+
 # _______________________ GenServers _______________________
+
 
 class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
     """
@@ -328,6 +331,59 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
                 f"This might indicate a programming error or timeout."
             )
 
+    def _process_call(self, msg: Call):
+        """Processes a `Call` message:
+
+        1. Attempts to handle the message using the user-defined `handle_call`
+           callback.
+        2. Replies to the message-sender with a response.
+        3. Sets the current state.
+        4. In case of an exception, logs an exception and replies to the
+           message-sender.
+
+        Args:
+            msg (Call): The message to process.
+        """        
+        call_message = msg.message
+        correlation_id = msg.correlation_id
+        try:
+            response, next_state = self.handle_call(call_message, self.current_state)
+            self.current_state = next_state
+            self._reply(
+                correlation_id=correlation_id,
+                response=response,
+            )
+        except Exception as e:
+            logger.exception(
+                "GenServer handle_call error for message: %s",
+                call_message,
+            )
+            self._reply(
+                correlation_id,
+                GenServerError("handle_call failed: %s", e),
+            )  # Reply with error
+
+    def _process_cast(self, msg: Cast):
+        """Processes a `Cast` message:
+
+        1. Attempts to handle the message using the user-defined `handle_cast`
+           callback.
+        3. Sets the current state.
+        4. In case of an exception, logs an exception.
+
+        Args:
+            msg (Cast): The message to process.
+        """        
+        cast_message = msg.message
+        try:
+            next_state = self.handle_cast(cast_message, self.current_state)
+            self.current_state = next_state
+        except Exception as e:
+            logger.exception(
+                "GenServer handle_cast error for message: %s",
+                cast_message,
+            )
+
     def _loop(self, *args: Any, **kwargs: Any) -> None:
         """
         The main message processing loop of the GenServer.
@@ -357,36 +413,9 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
                     self._running = False
                     break
                 elif isinstance(msg, Call):
-                    call_message = msg.message
-                    correlation_id = msg.correlation_id
-                    try:
-                        response, next_state = self.handle_call(
-                            call_message, self.current_state
-                        )
-                        self.current_state = next_state
-                        self._reply(
-                            correlation_id=correlation_id,
-                            response=response,
-                        )
-                    except Exception as e:
-                        logger.exception(
-                            "GenServer handle_call error for message: %s",
-                            call_message,
-                        )
-                        self._reply(
-                            correlation_id,
-                            GenServerError("handle_call failed: %s", e),
-                        )  # Reply with error
+                    self._process_call(msg)
                 elif isinstance(msg, Cast):
-                    cast_message = msg.message
-                    try:
-                        next_state = self.handle_cast(cast_message, self.current_state)
-                        self.current_state = next_state
-                    except Exception as e:
-                        logger.exception(
-                            "GenServer handle_cast error for message: %s",
-                            cast_message,
-                        )
+                    self._process_cast(msg)
                 else:
                     logger.warning(f"Unknown message type received: {msg}")
 
