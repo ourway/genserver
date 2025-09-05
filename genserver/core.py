@@ -33,16 +33,52 @@ CastMsg = TypeVar("CastMsg")
 
 
 class Terminate:
+    """
+    A sentinel message used to signal that a TypedGenServer should stop running.
+
+    When a Terminate message is placed in the server's mailbox, the server's
+    message loop should exit gracefully, performing any necessary cleanup
+    before shutting down.
+    """
+
     pass
 
 
 class Call(Generic[CallMsg]):
+    """
+    A synchronous request message sent to a TypedGenServer that expects a
+    response.
+
+    A Call wraps a request of type `CallMsg` along with a unique
+    `correlation_id` that allows the sender to match the server's reply
+    with the original request.
+
+    Attributes
+    ----------
+    message : CallMsg
+        The actual request payload.
+    correlation_id : str
+        A unique identifier that ties this call to its reply.
+    """
+
     def __init__(self, message: CallMsg, correlation_id: str):
         self.message = message
         self.correlation_id = correlation_id
 
 
 class Cast(Generic[CastMsg]):
+    """
+    An asynchronous request message sent to a GenServer.
+
+    Unlike a `Call`, a `Cast` does not expect a reply. It simply delivers
+    a message of type `CastMsg` to the server for handling.
+
+    Attributes
+    ----------
+    message : CastMsg
+        The request payload sent to the server.
+    """
+
     def __init__(self, message: CastMsg):
         self.message = message
 
@@ -52,7 +88,7 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
     Typed Generic Server (GenServer) base class for Python.
 
     Has three generic parameters:
-    
+
     1. `CastMsg`: The type of cast messages that it accepts.
     2. `CallMsg`: The type of call messages that it accepts.
     3. `StateType`: The type of its internal state.
@@ -254,7 +290,7 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
 
         Raises:
             GenServerError: If the set state is not the correct type.
-        """        
+        """
         return self._current_state
 
     @current_state.setter
@@ -450,9 +486,9 @@ class GenServer(
     Subclass this to create your own GenServers.
 
     Specialises TypedGenServer to expect dictionaries for call and cast messages.
-    
+
     Has one generic parameter:
-    
+
     1. `StateType`: The type of its internal state.
 
     Handles message queuing, state management, and basic lifecycle.
