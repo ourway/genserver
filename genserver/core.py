@@ -12,24 +12,18 @@ from typing import (
     Generic,
     Optional,
     Tuple,
-    TypeVar,
     get_args,
     get_origin,
 )
 
 from genserver.exceptions import GenServerError, GenServerTimeoutError
-from genserver.typing import Message, StateType
+from genserver.typing import CallMsg, CastMsg, StateType
 
 # Configure default logger for the library
 logger = logging.getLogger(__name__)
 logger.addHandler(
     logging.NullHandler()
 )  # To avoid 'No handler found' warnings if not configured by user
-
-
-StateType = TypeVar("StateType")
-CallMsg = TypeVar("CallMsg")
-CastMsg = TypeVar("CastMsg")
 
 
 class Terminate:
