@@ -135,37 +135,64 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
             raise GenServerError("GenServer is not running.")
         self._running = False
         self._mailbox.put(Terminate())
-        if self._thread is not None:  # FIX 2: Check if _thread is not None
-            self._thread.join(timeout=timeout)
-            if (
-                self._thread.is_alive()
-            ):  # FIX 3: Check if _thread is not None before is_alive
-                raise TimeoutError("GenServer failed to stop within the timeout.")
+        if self._thread is None:  # FIX 2: Check if _thread is not None
+            return
+        self._thread.join(timeout=timeout)
+        # FIX 3: Check if _thread is not None before is_alive
+        if self._thread.is_alive():
+            raise TimeoutError("GenServer failed to stop within the timeout.")
 
-    def cast(self, message: CastMsg) -> None:
-        """
-        Sends an asynchronous message (cast) to the GenServer's mailbox.
-
-        The GenServer will process this message in its message processing loop.
-        No response is expected for cast messages.
+    def assert_cast_msg(self, message: CastMsg):
+        """Asserts that the cast message is the correct type.
 
         Args:
-            message: The message to be sent. Must be a dictionary.
+            message (CastMsg): The message to be checked.
 
         Raises:
-            GenServerError: If the GenServer is not running or message is not a dictionary.
+            GenServerError: If the message is not the correct type.
         """
-        if not self._running:
-            raise GenServerError("Cannot cast message to a stopped GenServer.")
-        # Enforce message as CastMsg type
         if not isinstance(message, self._cast_type):
             raise GenServerError(
                 "Expected cast message %s, got %s",
                 self._cast_type,
                 type(message),
             )
+
+    def cast(self, message: CastMsg) -> None:
+        """
+        Sends an asynchronous message (cast) to the TypedGenServer's mailbox.
+
+        The TypedGenServer will process this message in its message processing loop.
+        No response is expected for cast messages.
+
+        Args:
+            message: The message to be sent. Must be of type `CastMsg`.
+
+        Raises:
+            GenServerError: If the GenServer is not running or message is not the correct type.
+        """
+        if not self._running:
+            raise GenServerError("Cannot cast message to a stopped GenServer.")
+        # Enforce message as CastMsg type
+        self.assert_cast_msg(message=message)
         cast_message = Cast(message=message)
         self._mailbox.put(cast_message)
+
+    def assert_call_message(self, message):
+        """Asserts that the call message is the correct type.
+
+        Args:
+            message (CastMsg): The message to be checked.
+
+        Raises:
+            GenServerError: If the message is not the correct type.
+        """
+        if not isinstance(message, self._call_type):
+            raise GenServerError(
+                "Expected call message %s, got %s",
+                self._call_type,
+                type(message),
+            )
 
     def call(self, message: CallMsg, timeout: Optional[float] = None) -> Any:
         """
@@ -188,12 +215,7 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
         if not self._running:
             raise GenServerError("Cannot call a stopped GenServer.")
         # Enforce call message as CallMsg type
-        if not isinstance(message, self._call_type):
-            raise GenServerError(
-                "Expected call message %s, got %s",
-                self._call_type,
-                type(message),
-            )
+        self.assert_call_message(message=message)
 
         correlation_id = uuid.uuid4()
         reply_queue: queue.Queue[Any] = queue.Queue()
