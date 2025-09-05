@@ -32,8 +32,8 @@ This library aims to bring the power and elegance of the GenServer model to Pyth
 *   **Timeouts:** Supports timeouts for `stop` and `call` operations, preventing indefinite blocking.
 *   **Type Hinting:**  Written with type hints for improved code clarity, maintainability, and static analysis.
 *   **Well-Tested:** Comes with a comprehensive suite of unit tests to ensure reliability and correctness.
-*   **Production-Ready:** Designed for building robust and scalable applications.
-
+*   **Production-Ready:** Designed for building robust and scalable applications. 
+*   **Structured Message Classes**: `genserver` also supports a typed GenServer variant that enforces structured message types for calls and casts.
 
 ## Installation
 
@@ -46,7 +46,7 @@ pip install genserver
 **Note:** The PyPI package name is `genserver` to avoid namespace conflicts. When importing in Python, you will use `import genserver`.
 
 ## Usage
-`python test_application.py` or
+`python sample_application.py` or
 Here's a simple example demonstrating how to use `genserver` to create a counter server:
 
 ```python
@@ -103,6 +103,77 @@ To run this example, save it as a Python file (e.g., `counter_example.py`) and e
 python counter_example.py
 ```
 
+Here's another example demonstrating how to use the typed GenServer `genserver` to create a counter server:
+
+```python
+import time
+import logging
+from genserver import TypedGenServer, GenServerError, GenServerTimeoutError
+
+# Configure logging (optional)
+logging.basicConfig(level=logging.INFO)
+
+class Increment:
+    pass
+
+
+class Decrement:
+    pass
+
+
+class GetCount:
+    pass
+
+
+class IncrementAndGet:
+    pass
+
+
+class CounterServer(
+    TypedGenServer[Increment | Decrement, GetCount | IncrementAndGet, int]
+):  # Example with state as int
+    def init(self) -> int:
+        return 0  # Initial state is 0
+
+    def handle_cast(self, message, state: int) -> int:
+        match message:
+            case Increment():
+                return state + 1
+            case Decrement():
+                return state -1
+            case _:
+                return super().handle_cast(message, state)
+
+    def handle_call(self, message, state: int) -> tuple[int, int]:
+        match message:
+            case GetCount():
+                return state, state
+
+            case IncrementAndGet():
+                new_state = state + 1
+                return new_state, new_state
+
+            case _:
+                raise NotImplementedError("Call message %s not implemented.", message)
+
+if __name__ == "__main__":
+    counter = CounterServer()
+    counter.start()
+
+    counter.cast(Increment())
+    counter.cast(Increment())
+
+    count = counter.call(GetCount())
+    print(f"Current Count: {count}") # Output: Current Count: 2
+
+    new_count = counter.call(IncrementAndGet())
+    print(f"Incremented Count: {new_count}") # Output: Incremented Count: 3
+
+    counter.stop()
+    print("Counter Server Stopped.")
+```
+
+
 **Key GenServer Methods:**
 
   * **`start(*args, **kwargs)`:** Starts the GenServer process. Calls `init(*args, **kwargs)` in a new thread.
@@ -113,8 +184,8 @@ python counter_example.py
 **User-Defined Callbacks (Override in Subclasses):**
 
   * **`init(*args, **kwargs) -> State`:**  Initialization callback. Return the initial state.
-  * **`handle_cast(message: dict, state: State) -> State`:** Handles asynchronous cast messages. Return the new state.
-  * **`handle_call(message: dict, state: State) -> tuple[Any, State]`:** Handles synchronous call messages. Return a tuple containing the response and the new state.
+  * **`handle_cast(message: CastMsg, state: State) -> State`:** Handles asynchronous cast messages. Return the new state.
+  * **`handle_call(message: CallMsg, state: State) -> tuple[Any, State]`:** Handles synchronous call messages. Return a tuple containing the response and the new state.
   * **`terminate(state: State)`:** Termination callback, called when the GenServer is stopping.
 
 ## Running Tests
