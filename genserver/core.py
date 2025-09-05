@@ -239,6 +239,28 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
             ):  # Ensure cleanup even if timeout didn't happen via queue.Empty
                 del self._reply_queues[correlation_id]
 
+    @property
+    def current_state(self):
+        """Get or set the current state of the TypedGenServer.
+
+        Returns:
+            StateType: The current state of the TypedGenServer.
+
+        Raises:
+            GenServerError: If the set state is not the correct type.
+        """        
+        return self._current_state
+
+    @current_state.setter
+    def current_state(self, value: StateType):
+        if not isinstance(value, self._state_type):
+            raise GenServerError(
+                "Expected state %s, got %s",
+                self._state_type,
+                type(value),
+            )
+        self._current_state = value
+
     def _reply(self, correlation_id: uuid.UUID, response: Any) -> None:
         """
         Internal method to send a reply to a 'call' message.
@@ -270,7 +292,7 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
         - Calls `terminate` before exiting the loop.
         """
         try:
-            self._current_state = self.init(*args, **kwargs)
+            self.current_state = self.init(*args, **kwargs)
         except Exception as e:
             logger.exception(f"GenServer init failed: {e}")
             self._running = False  # Stop if init fails, prevent further processing
@@ -291,9 +313,9 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
                     correlation_id = msg.correlation_id
                     try:
                         response, next_state = self.handle_call(
-                            call_message, self._current_state
+                            call_message, self.current_state
                         )
-                        self._current_state = next_state
+                        self.current_state = next_state
                         self._reply(
                             correlation_id=correlation_id,
                             response=response,
@@ -310,8 +332,8 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
                 elif isinstance(msg, Cast):
                     cast_message = msg.message
                     try:
-                        next_state = self.handle_cast(cast_message, self._current_state)
-                        self._current_state = next_state
+                        next_state = self.handle_cast(cast_message, self.current_state)
+                        self.current_state = next_state
                     except Exception as e:
                         logger.exception(
                             "GenServer handle_cast error for message: %s",
@@ -333,7 +355,7 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
                 break  # Ensure loop exit
 
         try:
-            self.terminate(self._current_state)  # Call terminate before thread exits
+            self.terminate(self.current_state)  # Call terminate before thread exits
         except Exception as e_term:
             logger.exception(f"GenServer terminate error: {e_term}")
 
