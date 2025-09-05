@@ -278,7 +278,7 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
         except queue.Empty:
             del self._reply_queues[correlation_id]  # Clean up
             raise GenServerTimeoutError(
-                f"No response received for call within timeout: {timeout} seconds."
+                "No response received for call within timeout: %s seconds.", timeout
             )
         finally:
             if (
@@ -327,8 +327,9 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
             reply_queue.put(response)
         else:
             logger.warning(
-                f"Reply queue not found for correlation ID: {correlation_id}. "
-                f"This might indicate a programming error or timeout."
+                "Reply queue not found for correlation ID: %s. "
+                "This might indicate a programming error or timeout.",
+                correlation_id,
             )
 
     def _process_call(self, msg: Call):
@@ -398,7 +399,7 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
         try:
             self.current_state = self.init(*args, **kwargs)
         except Exception as e:
-            logger.exception(f"GenServer init failed: {e}")
+            logger.exception("GenServer init failed: %s", e)
             self._running = False  # Stop if init fails, prevent further processing
             return  # Exit loop immediately
 
@@ -417,7 +418,7 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
                 elif isinstance(msg, Cast):
                     self._process_cast(msg)
                 else:
-                    logger.warning(f"Unknown message type received: {msg}")
+                    logger.warning("Unknown message type received: %s", msg)
 
             except queue.Empty:  # Timeout, just continue loop to check self._running
                 pass  # No message in queue, non-blocking timeout used
@@ -432,7 +433,7 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
         try:
             self.terminate(self.current_state)  # Call terminate before thread exits
         except Exception as e_term:
-            logger.exception(f"GenServer terminate error: {e_term}")
+            logger.exception("GenServer terminate error: %s", e_term)
 
     # -------- Callbacks to be Overridden in Subclasses --------
 
