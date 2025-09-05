@@ -25,6 +25,7 @@ logger.addHandler(
     logging.NullHandler()
 )  # To avoid 'No handler found' warnings if not configured by user
 
+# ___________________ GenServer Messages ___________________
 
 class Terminate:
     """
@@ -76,6 +77,7 @@ class Cast(Generic[CastMsg]):
     def __init__(self, message: CastMsg):
         self.message = message
 
+# _______________________ GenServers _______________________
 
 class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
     """
@@ -130,6 +132,8 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
             cls._state_type = state_t
             return
 
+    # ------------- GenServer Lifecycle Management -------------
+
     def start(self, *args: Any, **kwargs: Any) -> None:
         """
         Starts the GenServer process.
@@ -178,6 +182,8 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
         if self._thread.is_alive():
             raise TimeoutError("GenServer failed to stop within the timeout.")
 
+    # ------------------ Message Type-checking -----------------
+
     def assert_cast_msg(self, message: CastMsg):
         """Asserts that the cast message is the correct type.
 
@@ -193,6 +199,24 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
                 self._cast_type,
                 type(message),
             )
+
+    def assert_call_message(self, message):
+        """Asserts that the call message is the correct type.
+
+        Args:
+            message (CastMsg): The message to be checked.
+
+        Raises:
+            GenServerError: If the message is not the correct type.
+        """
+        if not isinstance(message, self._call_type):
+            raise GenServerError(
+                "Expected call message %s, got %s",
+                self._call_type,
+                type(message),
+            )
+
+    # ------------------- Receiving Messages -------------------
 
     def cast(self, message: CastMsg) -> None:
         """
@@ -213,22 +237,6 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
         self.assert_cast_msg(message=message)
         cast_message = Cast(message=message)
         self._mailbox.put(cast_message)
-
-    def assert_call_message(self, message):
-        """Asserts that the call message is the correct type.
-
-        Args:
-            message (CastMsg): The message to be checked.
-
-        Raises:
-            GenServerError: If the message is not the correct type.
-        """
-        if not isinstance(message, self._call_type):
-            raise GenServerError(
-                "Expected call message %s, got %s",
-                self._call_type,
-                type(message),
-            )
 
     def call(self, message: CallMsg, timeout: Optional[float] = None) -> Any:
         """
@@ -275,6 +283,8 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
             ):  # Ensure cleanup even if timeout didn't happen via queue.Empty
                 del self._reply_queues[correlation_id]
 
+    # ---------------------- Server State ----------------------
+
     @property
     def current_state(self):
         """Get or set the current state of the TypedGenServer.
@@ -296,6 +306,8 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
                 type(value),
             )
         self._current_state = value
+
+    # ----------------- Responding to Messages -----------------
 
     def _reply(self, correlation_id: uuid.UUID, response: Any) -> None:
         """
@@ -395,7 +407,7 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
         except Exception as e_term:
             logger.exception(f"GenServer terminate error: {e_term}")
 
-    # --- User-defined callback methods to be overridden in subclasses ---
+    # -------- Callbacks to be Overridden in Subclasses --------
 
     def init(self, *args: Any, **kwargs: Any) -> StateType:
         """
