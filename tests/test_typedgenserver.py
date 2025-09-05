@@ -31,6 +31,7 @@ class CounterServer(
     def init(self) -> int:
         return 0  # Initial state is 0
 
+    # Using singledispatchmethod for pattern-matching
     @singledispatchmethod
     def handle_cast(self, message, state: int) -> int:
         return super().handle_cast(message, state)
@@ -43,18 +44,18 @@ class CounterServer(
     def _(self, message: Decrement, state: int) -> int:
         return state - 1
 
-    @singledispatchmethod
+    # Using match case statement for pattern-matching
     def handle_call(self, message, state: int) -> tuple[int, int]:
-        raise NotImplementedError("Call message %s not implemented.", message)
+        match message:
+            case GetCount():
+                return state, state
 
-    @handle_call.register
-    def _(self, message: GetCount, state: int) -> tuple[int, int]:
-        return state, state
+            case IncrementAndGet():
+                new_state = state + 1
+                return new_state, new_state
 
-    @handle_call.register
-    def _(self, message: IncrementAndGet, state: int) -> tuple[int, int]:
-        new_state = state + 1
-        return new_state, new_state
+            case _:
+                raise NotImplementedError("Call message %s not implemented.", message)
 
 
 class ErrorCall:
