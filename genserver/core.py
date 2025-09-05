@@ -5,17 +5,16 @@ Core GenServer implementation.
 import logging
 import queue
 import threading
-import time
 import uuid
 from typing import (
     Any,
-    Awaitable,
-    Callable,
     Dict,
     Generic,
     Optional,
     Tuple,
     TypeVar,
+    get_args,
+    get_origin,
 )
 
 from genserver.exceptions import GenServerError, GenServerTimeoutError
@@ -28,12 +27,29 @@ logger.addHandler(
 )  # To avoid 'No handler found' warnings if not configured by user
 
 
-_StateType = TypeVar("_StateType")
+StateType = TypeVar("StateType")
+CallMsg = TypeVar("CallMsg")
+CastMsg = TypeVar("CastMsg")
 
 
-class GenServer(Generic[_StateType]):
+class Terminate:
+    pass
+
+
+class Call(Generic[CallMsg]):
+    def __init__(self, message: CallMsg, correlation_id: str):
+        self.message = message
+        self.correlation_id = correlation_id
+
+
+class Cast(Generic[CastMsg]):
+    def __init__(self, message: CastMsg):
+        self.message = message
+
+
+class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
     """
-    Generic Server (GenServer) base class for Python.
+    Typed Generic Server (GenServer) base class for Python.
 
     Implements the core GenServer behavior inspired by Erlang/OTP.
     Subclass this to create your own GenServers.
@@ -41,17 +57,42 @@ class GenServer(Generic[_StateType]):
     Handles message queuing, state management, and basic lifecycle.
     """
 
+    _cast_type: CastMsg
+    _call_type: CallMsg
+    _state_type: StateType
+
     def __init__(self) -> None:
         """
         Initializes the GenServer with a message queue and internal state.
         """
-        self._mailbox: queue.Queue[Message] = queue.Queue()
+        self._mailbox: queue.Queue[Cast[CastMsg] | Call[CallMsg] | Terminate] = (
+            queue.Queue()
+        )
         self._thread: Optional[threading.Thread] = None
         self._running: bool = False
-        self._current_state: Optional[_StateType] = None
+        self._current_state: Optional[StateType] = None
         self._reply_queues: Dict[uuid.UUID, queue.Queue[Any]] = (
             {}
         )  # For handle_call replies
+
+    def __init_subclass__(cls):
+        super().__init_subclass__()
+
+        # Julian: The original GenServer implementation checked that messages
+        # were dictionaries. But, since we want to be able to check that messages
+        # are any of the specified object, we need to get the type arguments of
+        # the TypedGenServer when it gets subclassed. We can then store those
+        # type arguments in the class variables and check the types of the
+        # messages against them.
+        for base in getattr(cls, "__orig_bases__", ()):
+            origin = get_origin(base)
+            if origin is not TypedGenServer:
+                continue
+            cast_t, call_t, state_t = get_args(base)
+            cls._cast_type = cast_t
+            cls._call_type = call_t
+            cls._state_type = state_t
+            return
 
     def start(self, *args: Any, **kwargs: Any) -> None:
         """
@@ -93,9 +134,7 @@ class GenServer(Generic[_StateType]):
         if not self._running:
             raise GenServerError("GenServer is not running.")
         self._running = False
-        self._mailbox.put(
-            {"_command": "stop"}
-        )  # FIX 1: Wrap stop command in a dictionary
+        self._mailbox.put(Terminate())
         if self._thread is not None:  # FIX 2: Check if _thread is not None
             self._thread.join(timeout=timeout)
             if (
@@ -103,7 +142,7 @@ class GenServer(Generic[_StateType]):
             ):  # FIX 3: Check if _thread is not None before is_alive
                 raise TimeoutError("GenServer failed to stop within the timeout.")
 
-    def cast(self, message: Message) -> None:
+    def cast(self, message: CastMsg) -> None:
         """
         Sends an asynchronous message (cast) to the GenServer's mailbox.
 
@@ -118,11 +157,17 @@ class GenServer(Generic[_StateType]):
         """
         if not self._running:
             raise GenServerError("Cannot cast message to a stopped GenServer.")
-        if not isinstance(message, dict):  # Enforce message as dictionary for structure
-            raise GenServerError("Message must be a dictionary.")
-        self._mailbox.put(message)
+        # Enforce message as CastMsg type
+        if not isinstance(message, self._cast_type):
+            raise GenServerError(
+                "Expected cast message %s, got %s",
+                self._cast_type,
+                type(message),
+            )
+        cast_message = Cast(message=message)
+        self._mailbox.put(cast_message)
 
-    def call(self, message: Message, timeout: Optional[float] = None) -> Any:
+    def call(self, message: CallMsg, timeout: Optional[float] = None) -> Any:
         """
         Sends a synchronous message (call) to the GenServer and waits for a response.
 
@@ -142,17 +187,18 @@ class GenServer(Generic[_StateType]):
         """
         if not self._running:
             raise GenServerError("Cannot call a stopped GenServer.")
-        if not isinstance(message, dict):  # Enforce message as dictionary for structure
-            raise GenServerError("Message must be a dictionary.")
+        # Enforce call message as CallMsg type
+        if not isinstance(message, self._call_type):
+            raise GenServerError(
+                "Expected call message %s, got %s",
+                self._call_type,
+                type(message),
+            )
 
         correlation_id = uuid.uuid4()
         reply_queue: queue.Queue[Any] = queue.Queue()
         self._reply_queues[correlation_id] = reply_queue
-        call_message = {
-            "_command": "_call",
-            "message": message,
-            "correlation_id": correlation_id,
-        }  # FIX 4: Wrap call message in a dictionary
+        call_message = Call(message=message, correlation_id=correlation_id)
         self._mailbox.put(call_message)
 
         try:
@@ -215,50 +261,40 @@ class GenServer(Generic[_StateType]):
                 )  # Block with timeout for responsiveness
                 if not msg:  # Spurious wakeup?
                     continue
-
-                if (
-                    isinstance(msg, dict) and "_command" in msg
-                ):  # Internal commands or calls are now dictionaries
-                    command_type = msg["_command"]
-                    if command_type == "stop":
-                        self._running = False  # Graceful stop
-                        break  # Exit loop
-                    elif command_type == "_call":
-                        call_message = msg.get(
-                            "message"
-                        )  # Extract message and correlation_id from dict
-                        correlation_id = msg.get("correlation_id")
-                        if call_message and correlation_id:  # Ensure they exist
-                            try:
-                                response, next_state = self.handle_call(
-                                    call_message, self._current_state
-                                )
-                                self._current_state = next_state
-                                self._reply(
-                                    correlation_id, response
-                                )  # Send response back to caller
-                            except Exception as e:
-                                logger.exception(
-                                    f"GenServer handle_call error for message: {call_message}"
-                                )
-                                self._reply(
-                                    correlation_id,
-                                    GenServerError(f"handle_call failed: {e}"),
-                                )  # Reply with error
-                        else:
-                            logger.warning(f"Incomplete _call message received: {msg}")
-                    else:
-                        logger.warning(f"Unknown internal message type: {command_type}")
-
-                elif isinstance(msg, dict):  # Cast messages (user-defined)
+                if isinstance(msg, Terminate):
+                    self._running = False
+                    break
+                elif isinstance(msg, Call):
+                    call_message = msg.message
+                    correlation_id = msg.correlation_id
                     try:
-                        next_state = self.handle_cast(msg, self._current_state)
+                        response, next_state = self.handle_call(
+                            call_message, self._current_state
+                        )
+                        self._current_state = next_state
+                        self._reply(
+                            correlation_id=correlation_id,
+                            response=response,
+                        )
+                    except Exception as e:
+                        logger.exception(
+                            "GenServer handle_call error for message: %s",
+                            call_message,
+                        )
+                        self._reply(
+                            correlation_id,
+                            GenServerError("handle_call failed: %s", e),
+                        )  # Reply with error
+                elif isinstance(msg, Cast):
+                    cast_message = msg.message
+                    try:
+                        next_state = self.handle_cast(cast_message, self._current_state)
                         self._current_state = next_state
                     except Exception as e:
                         logger.exception(
-                            f"GenServer handle_cast error for message: {msg}"
+                            "GenServer handle_cast error for message: %s",
+                            cast_message,
                         )
-
                 else:
                     logger.warning(f"Unknown message type received: {msg}")
 
@@ -268,7 +304,7 @@ class GenServer(Generic[_StateType]):
             except (
                 Exception
             ) as main_loop_err:  # Catch any unexpected errors in the loop
-                logger.exception(f"GenServer main loop error: {main_loop_err}")
+                logger.exception("GenServer main loop error: %s", main_loop_err)
                 self._running = (
                     False  # Stop on unhandled loop errors to prevent indefinite issues
                 )
@@ -281,7 +317,7 @@ class GenServer(Generic[_StateType]):
 
     # --- User-defined callback methods to be overridden in subclasses ---
 
-    def init(self, *args: Any, **kwargs: Any) -> _StateType:
+    def init(self, *args: Any, **kwargs: Any) -> StateType:
         """
         Initialization callback.
 
@@ -297,7 +333,7 @@ class GenServer(Generic[_StateType]):
         """
         raise NotImplementedError("init method must be implemented in subclass.")
 
-    def handle_cast(self, message: Message, state: _StateType) -> _StateType:
+    def handle_cast(self, message: CastMsg, state: StateType) -> StateType:
         """
         Handles asynchronous cast messages.
 
@@ -312,13 +348,12 @@ class GenServer(Generic[_StateType]):
                    Return the same state if no state change is needed.
         """
         logger.warning(
-            f"Unhandled cast message: {message}. Override handle_cast in subclass to handle it."
+            "Unhandled cast message: %s. Override handle_cast in subclass to handle it.",
+            message,
         )
         return state  # Default: return same state
 
-    def handle_call(
-        self, message: Message, state: _StateType
-    ) -> Tuple[Any, _StateType]:
+    def handle_call(self, message: CallMsg, state: StateType) -> Tuple[Any, StateType]:
         """
         Handles synchronous call messages.
 
@@ -341,7 +376,7 @@ class GenServer(Generic[_StateType]):
             "handle_call method must be implemented in subclass to handle calls."
         )
 
-    def terminate(self, state: _StateType) -> None:
+    def terminate(self, state: StateType) -> None:
         """
         Termination callback.
 
@@ -353,3 +388,36 @@ class GenServer(Generic[_StateType]):
         """
         logger.info("GenServer is terminating.")
         pass  # Default: do nothing on terminate
+
+
+class GenServer(
+    TypedGenServer[dict, dict, StateType],
+):
+    """
+    Generic Server (GenServer) base class for Python.
+
+    Implements the core GenServer behavior inspired by Erlang/OTP.
+    Subclass this to create your own GenServers.
+
+    Handles message queuing, state management, and basic lifecycle.
+
+    Expects dictionaries for call and cast messages.
+    """
+
+    pass
+
+    def __init_subclass__(cls):
+        # Julian: we have to duplicate the same "get type argument" logic as in
+        # TypedGenServer to set the state type -- as when a GenServer gets
+        # subclassed, the TypedGenServer __init_subclass__ will only see the
+        # [dict, dict] type arguments, not the state type (as it's kept generic
+        # in GenServer).
+
+        super().__init_subclass__()
+        for base in getattr(cls, "__orig_bases__", ()):
+            origin = get_origin(base)
+            if origin is not GenServer:
+                continue
+            state_t = get_args(base)[0]
+            cls._state_type = state_t
+            return
