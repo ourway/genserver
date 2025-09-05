@@ -6,9 +6,7 @@ with open("VERSION", "r") as version_file:
 setup(
     name="genserver",
     version=version,
-    packages=find_packages(
-        include=["genserver"]
-    ),  # Find packages under genserver/
+    packages=find_packages(include=["genserver"]),  # Find packages under genserver/
     install_requires=[],  # No dependencies for now
     description="Python GenServer implementation inspired by Erlang/OTP",
     long_description=open("README.md").read(),
@@ -17,9 +15,7 @@ setup(
     author="Farshid Ashouri",
     author_email="farsheed.ashouri@gmail.com",
     license="MIT",
-    license_files=(
-        "LICENSE",
-    ),  # Explicitly include the LICENSE file - KEEP THIS!
+    license_files=("LICENSE",),  # Explicitly include the LICENSE file - KEEP THIS!
     classifiers=[
         "Development Status :: 3 - Alpha",  # Or '4 - Beta', '5 - Production/Stable' as you mature
         "Intended Audience :: Developers",

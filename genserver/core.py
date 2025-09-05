@@ -343,7 +343,7 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
 
         Args:
             msg (Call): The message to process.
-        """        
+        """
         call_message = msg.message
         correlation_id = msg.correlation_id
         try:
@@ -373,7 +373,7 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
 
         Args:
             msg (Cast): The message to process.
-        """        
+        """
         cast_message = msg.message
         try:
             next_state = self.handle_cast(cast_message, self.current_state)
@@ -422,13 +422,11 @@ class TypedGenServer(Generic[CastMsg, CallMsg, StateType]):
             except queue.Empty:  # Timeout, just continue loop to check self._running
                 pass  # No message in queue, non-blocking timeout used
 
-            except (
-                Exception
-            ) as main_loop_err:  # Catch any unexpected errors in the loop
+            # Catch any unexpected errors in the loop
+            except Exception as main_loop_err:
                 logger.exception("GenServer main loop error: %s", main_loop_err)
-                self._running = (
-                    False  # Stop on unhandled loop errors to prevent indefinite issues
-                )
+                # Stop on unhandled loop errors to prevent indefinite issues
+                self._running = False
                 break  # Ensure loop exit
 
         try:
