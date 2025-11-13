@@ -2,12 +2,15 @@
 Type hints and aliases for the GenServer library.
 """
 
-from typing import Any, Dict, TypeVar
+from typing import TypeVar
 
-# Define Message as a type alias for dictionaries representing messages
-Message = Dict[str, Any]
+CallMsg = TypeVar("CallMsg")
+"""Type variable for call messages."""
 
-# StateType will be a generic type variable
+CastMsg = TypeVar("CastMsg")
+"""Type variable for cast messages."""
+
 StateType = TypeVar("StateType")
+"""Type variable for TypedGenServer state."""
 
-__all__ = ["Message", "StateType"]  # Ensure StateType is exported
+__all__ = ["CallMsg", "CastMsg", "StateType"]  # Ensure StateType is exported
